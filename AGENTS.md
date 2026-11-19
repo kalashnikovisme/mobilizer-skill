@@ -21,12 +21,24 @@ platform-specific instructions (**Claude Code** / **Codex**), keep explicit rela
 2. After ANY change to `templates/` or `scripts/`, run `skills/web-to-mobile/scripts/selftest.sh` and fix failures
    (renders all templates, `bash -n`, shellcheck when installed, XML/JSON/Ruby checks, placeholder and leakage guards).
 3. Keep `SKILL.md` ≲ 250 lines; details go to `references/`.
-4. Versioning: bump `skills/web-to-mobile/VERSION` (semver) exactly once per repository-changing task and add a `CHANGELOG.md` entry.
-   PATCH wording/fixes, MINOR new workflows/scripts, MAJOR breaking behaviour changes.
+4. **Versioning (mandatory, every time).** Any change to the repository's content bumps `skills/web-to-mobile/VERSION` (semver) exactly once, in the
+   same task, BEFORE install/validation/commit, and adds a `skills/web-to-mobile/CHANGELOG.md` entry. PATCH wording/fixes, MINOR new workflows/scripts,
+   MAJOR breaking behaviour changes. Never leave VERSION unchanged after modifying the skill. `SKILL.md` makes the agent print
+   `web-to-mobile v<VERSION>` first whenever the skill starts, so the number must always match the installed content.
 5. Update `README.md` when user-visible behaviour of the skill changes.
 6. Do not add `.claude-plugin/plugin.json` (conflicts with `marketplace.json`).
 7. Native scripts that could not be executed in the authoring environment (iOS scripts without a Mac) must say so in the changelog
    until someone has run them on real hardware; after a real run, record it here and fix the scripts.
-8. Local dev sync (developer-only): `claude plugin validate . --strict`, then copy `skills/web-to-mobile` to
-   `~/.claude/skills/web-to-mobile` and `~/.codex/skills/web-to-mobile`.
-9. Commit each logical change separately; do not rewrite history.
+8. **Local install (mandatory, every time).** After every local change to the skill (and after the version bump), install the current working tree on this
+   computer, replacing the old copy, so the next session uses it:
+   ```bash
+   skills/web-to-mobile/scripts/selftest.sh
+   claude plugin validate . --strict
+   rm -rf ~/.claude/skills/web-to-mobile && cp -R ./skills/web-to-mobile ~/.claude/skills/web-to-mobile
+   rm -rf ~/.codex/skills/web-to-mobile  && cp -R ./skills/web-to-mobile ~/.codex/skills/web-to-mobile
+   diff -r ./skills/web-to-mobile ~/.claude/skills/web-to-mobile && echo "installed v$(cat skills/web-to-mobile/VERSION)"
+   ```
+   Report the installed version. This is for local use; the recommended install for other people is the plugin marketplace in `README.md`.
+9. **Commit and push (standing authorization, mandatory).** Every task that changes this repository ends with: version bump → selftest → local install →
+   `git commit` → `git push` to `origin` on GitHub. Do not wait for a separate request and do not leave changes uncommitted or unpushed.
+   Commit each logical change separately; never rewrite history or force-push. If the push fails, report the real error.
