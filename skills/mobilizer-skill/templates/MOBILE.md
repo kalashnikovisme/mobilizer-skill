@@ -1,6 +1,6 @@
 # Mobile app: questionnaire answers
 
-Written by the `web-to-mobile` skill (Phase 0). **No secrets in this file** — it is
+Written by the `mobilizer-skill` skill (Phase 0). **No secrets in this file** — it is
 committed. The fenced `env` block below is machine-read by the skill's
 `scripts/render.sh`; keep the `KEY=VALUE` format. Edit values here, then re-render.
 

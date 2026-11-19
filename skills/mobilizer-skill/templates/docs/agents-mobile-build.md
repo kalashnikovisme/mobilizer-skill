@@ -39,7 +39,7 @@ copy the Team ID), cable + "Trust" + Developer Mode on the iPhone, trusting the 
 6. `npx cap sync android|ios` only — never bare `npx cap sync`.
 
 ## Device checklist
-Run `references/test-checklist.md` of the `web-to-mobile` skill (or the copy in `docs/`), report
+Run `references/test-checklist.md` of the `mobilizer-skill` skill (or the copy in `docs/`), report
 PASS / FAIL / NOT RUN per line.
 
 Release procedures: `ios-release.md`, `android-release.md`. Store text: `store-listing.md`.

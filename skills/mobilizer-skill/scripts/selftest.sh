@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Self-test for the skill itself (run from anywhere):  skills/web-to-mobile/scripts/selftest.sh
+# Self-test for the skill itself (run from anywhere):  skills/mobilizer-skill/scripts/selftest.sh
 # Renders every template with sample parameters into a temp dir and checks:
 #   - no unresolved {{KEY}}; unresolved keys make render.sh fail (negative test)
 #   - bash -n (and shellcheck if installed) on all rendered shell scripts

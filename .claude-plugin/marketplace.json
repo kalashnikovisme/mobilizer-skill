@@ -1,17 +1,17 @@
 {
-  "name": "web-to-mobile-marketplace",
-  "description": "Marketplace for the web-to-mobile skill: turn a deployed web app into Android/iOS apps (Capacitor) and ship them to TestFlight and Google Play.",
+  "name": "mobilizer-skill-marketplace",
+  "description": "Marketplace for the mobilizer-skill skill: turn a deployed web app into Android/iOS apps (Capacitor) and ship them to TestFlight and Google Play.",
   "owner": {
     "name": "kalashnikovisme"
   },
   "plugins": [
     {
-      "name": "web-to-mobile",
+      "name": "mobilizer-skill",
       "source": "./",
       "description": "Guided, script-driven path from a working web app to an installed, signed mobile app in TestFlight / Google Play (Capacitor remote-URL mode).",
       "strict": false,
       "skills": [
-        "./skills/web-to-mobile"
+        "./skills/mobilizer-skill"
       ]
     }
   ]

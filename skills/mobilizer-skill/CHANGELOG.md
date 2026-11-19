@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 — 2026-11-19
+
+Skill renamed from `web-to-mobile` to `mobilizer-skill` (directory `skills/mobilizer-skill/`, frontmatter `name`, plugin name in `marketplace.json`,
+install paths `~/.claude/skills/mobilizer-skill` and `~/.codex/skills/mobilizer-skill`, version banner `mobilizer-skill v<VERSION>`).
+Breaking for anyone invoking or installing the old name. Content is otherwise unchanged.
+
 ## 0.1.1 — 2026-11-19
 
 Repository workflow rules: mandatory version bump on every change, mandatory local install to `~/.claude/skills` and `~/.codex/skills`,

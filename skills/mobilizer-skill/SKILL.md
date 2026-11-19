@@ -1,9 +1,9 @@
 ---
-name: web-to-mobile
+name: mobilizer-skill
 description: 'Turn a working web application into installed, store-ready mobile apps: Android and iOS wrappers built with Capacitor around the live production site, running on a phone/simulator, signed, and uploaded to TestFlight / Google Play. Use when the user says "build a mobile app", "make an Android/iOS app from my site", "собери мобильное приложение", "поставь на телефон", "put it on my phone", or mentions Capacitor, TestFlight, Google Play, App Store, APK/AAB, App Links, Universal Links, assetlinks.json, apple-app-site-association, Sign in with Apple, store listing/review notes, or hiding payments in a native app. Automates toolchain install, builds, device runs, signing and release scripts; asks the human only for what cannot be done from a terminal.'
 ---
 
-# web-to-mobile
+# mobilizer-skill
 
 Guides an existing, deployed web app to: installed on a phone → signed → in TestFlight / Google Play. Default architecture:
 **Capacitor in remote-URL mode** (the WebView loads the live site). Do everything that can be automated; ask the human only for
@@ -11,10 +11,10 @@ what needs hands (passwords, Apple ID, buttons on the phone, store consoles).
 
 ## Runtime and file loading
 Resolve every relative path (`references/…`, `templates/…`, `scripts/…`, `VERSION`) against this skill's own base directory
-(announced when the skill is invoked). Fallbacks: `~/.claude/skills/web-to-mobile/`, `~/.codex/skills/web-to-mobile/`, `skills/web-to-mobile/`
+(announced when the skill is invoked). Fallbacks: `~/.claude/skills/mobilizer-skill/`, `~/.codex/skills/mobilizer-skill/`, `skills/mobilizer-skill/`
 inside the source repo. **Claude Code**: use the Read tool to load a reference when a phase says to; it is not auto-loaded.
 **Codex / Cursor / others**: read the file with whatever file tool you have. Never skip a referenced file; if unreadable, tell the user.
-On load, read `VERSION` and print `web-to-mobile v<version>` first.
+On load, read `VERSION` and print `mobilizer-skill v<version>` first.
 
 ## Non-negotiable principles
 1. **One command per scenario.** The `bin/` scripts are the only supported path. Do not improvise ad-hoc build commands. If a script fails

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Renders web-to-mobile templates into a target repository.
+# Renders mobilizer-skill templates into a target repository.
 #
 #   render.sh [--params mobile/MOBILE.md] [--force] SRC DEST
 #

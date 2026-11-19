@@ -1,4 +1,4 @@
-# web-to-mobile
+# mobilizer-skill
 
 An agent skill (Claude Code, Codex, Cursor, …) that takes a **working, deployed web app** to **installed on a phone → signed →
 in TestFlight / Google Play**. It builds and configures everything that can be automated and asks the human only for what needs
@@ -26,14 +26,14 @@ lags behind the website.
 **Claude Code (plugin marketplace)**
 ```
 /plugin marketplace add <path-or-git-url-of-this-repo>
-/plugin install web-to-mobile
+/plugin install mobilizer-skill
 ```
 **Manual (Claude Code / Codex)**
 ```
-cp -R skills/web-to-mobile ~/.claude/skills/web-to-mobile
-cp -R skills/web-to-mobile ~/.codex/skills/web-to-mobile
+cp -R skills/mobilizer-skill ~/.claude/skills/mobilizer-skill
+cp -R skills/mobilizer-skill ~/.codex/skills/mobilizer-skill
 ```
-**Other agents:** point the agent at `skills/web-to-mobile/SKILL.md`.
+**Other agents:** point the agent at `skills/mobilizer-skill/SKILL.md`.
 
 Then, in your web app's repository, ask: *"turn this web app into Android and iOS apps"* / *"собери мобильное приложение"*.
 
@@ -44,7 +44,7 @@ Then, in your web app's repository, ask: *"turn this web app into Android and iO
 
 ## Layout
 ```
-skills/web-to-mobile/
+skills/mobilizer-skill/
   SKILL.md  VERSION  CHANGELOG.md
   references/   discovery · web-adaptation · android · ios · store-compliance · secrets-and-signing · test-checklist
   templates/    parameterised files rendered into the target repo ({{KEY}} from mobile/MOBILE.md)
