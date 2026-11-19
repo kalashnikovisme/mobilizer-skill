@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# Put the paid Apple team's ID into the Universal Links file (apple-app-site-association)
+# and into mobile/ios/local.env, then DEPLOY THE WEB APP and verify:
+#   curl -s {{PROD_URL}}/.well-known/apple-app-site-association
+#
+# Usage: mobile/ios/bin/set-team-id ABCDE12345
+set -euo pipefail
+TEAM="${1:-}"
+[[ "$TEAM" =~ ^[A-Z0-9]{10}$ ]] || { echo "usage: $0 <10-character Apple Team ID>" >&2; exit 1; }
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+AASA="$ROOT/{{WELLKNOWN_DIR}}/apple-app-site-association"
+[ -f "$AASA" ] || { echo "Not found: $AASA (render templates/web first, check WELLKNOWN_DIR in MOBILE.md)" >&2; exit 1; }
+sed -i.bak -E "s/([A-Z0-9]{10}|TEAMID)\.{{APP_ID}}/${TEAM}.{{APP_ID}}/g" "$AASA" && rm -f "$AASA.bak"
+grep -q "${TEAM}.{{APP_ID}}" "$AASA" || { echo "appIDs entry not updated -- check the file." >&2; exit 1; }
+ENVF="$ROOT/mobile/ios/local.env"
+if [ -f "$ENVF" ]; then
+  if grep -q '^TEAM_ID=' "$ENVF"; then sed -i.bak -E "s/^TEAM_ID=.*/TEAM_ID=${TEAM}/" "$ENVF" && rm -f "$ENVF.bak"; else echo "TEAM_ID=${TEAM}" >> "$ENVF"; fi
+fi
+echo "Team ID set. appIDs now:"; grep -n 'appIDs' "$AASA"
+echo "NEXT: commit, deploy the WEB app, then verify the URL above returns 200 + JSON containing ${TEAM}.{{APP_ID}}."

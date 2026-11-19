@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# Creates the Android UPLOAD keystore OUTSIDE the repository and a matching
+# upload-keystore.properties that app/build.gradle reads:
+#   ~/.config/{{APP_SLUG}}/upload-keystore.jks
+#   ~/.config/{{APP_SLUG}}/upload-keystore.properties   (chmod 600)
+# Passwords are generated randomly and are NEVER printed or committed.
+#
+# !!! BACK THESE TWO FILES UP (password manager / encrypted storage) !!!
+# If the upload key is lost you must ask Google Play support to reset it.
+# Refuses to overwrite an existing keystore.
+#
+# Usage: mobile/android/bin/make-upload-key
+set -euo pipefail
+command -v keytool >/dev/null || { echo "keytool not found -- run mobile/android/bin/install (JDK)." >&2; exit 1; }
+command -v openssl >/dev/null || { echo "openssl is required." >&2; exit 1; }
+CFG="$HOME/.config/{{APP_SLUG}}"
+JKS="$CFG/upload-keystore.jks"; PROPS="$CFG/upload-keystore.properties"
+if [ -e "$JKS" ] || [ -e "$PROPS" ]; then
+  echo "Upload keystore already exists in $CFG -- not touching it." >&2; exit 0
+fi
+mkdir -p "$CFG"; chmod 700 "$CFG"
+PASS="$(openssl rand -base64 24 | tr -d '/+=\n' | cut -c1-24)"
+STOREPASS="$PASS" keytool -genkeypair -v -storetype PKCS12 -keystore "$JKS" -alias upload \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN={{APP_NAME}}, O={{COPYRIGHT_HOLDER}}" \
+  -storepass:env STOREPASS -keypass:env STOREPASS >/dev/null
+( umask 077; printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=upload\nkeyPassword=%s\n' "$JKS" "$PASS" "$PASS" > "$PROPS" )
+unset PASS
+echo "Created $JKS and $PROPS (mode 600). Passwords were not printed."
+echo "BACK THEM UP NOW. Then enrol in Play App Signing when uploading the first .aab."

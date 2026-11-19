@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+#
+# Installs and verifies the full toolchain needed to build the {{APP_NAME}}
+# Android app (mobile/android): a JDK, the Android SDK (cmdline-tools,
+# platform-tools, platform + build-tools matching mobile/android/variables.gradle)
+# and a working `sdk.dir` for Gradle. Android Studio is NOT required.
+#
+# >>> MAINTENANCE CONTRACT <<<
+# This script must always be a complete, self-sufficient description of
+# everything required to build this app from a bare machine. If a build ever
+# fails (here, in CI, or on another machine) because a tool/package/SDK
+# component was missing, that is a bug in THIS FILE: fix it here instead of
+# documenting a manual workaround elsewhere. Keep it idempotent (safe to
+# re-run) and keep the version variables below in sync with
+# mobile/android/variables.gradle and mobile/android/build.gradle.
+#
+# Usage: mobile/android/bin/install
+# Installing the JDK may need sudo. AI agents must not type the sudo password:
+# ask the human to run it in a real terminal (in Claude Code: `! mobile/android/bin/install`).
+# Supported hosts: pacman (Arch), apt (Debian/Ubuntu), brew (macOS/Linuxbrew).
+
+set -euo pipefail
+
+# --- Versions: edit ONLY here ---------------------------------------------------
+JDK_MAJOR=21
+BUILD_TOOLS="36.0.0"                       # must support variables.gradle compileSdkVersion
+CMDLINE_TOOLS_BUILD="11076708"             # https://developer.android.com/studio#command-line-tools-only
+# --------------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+log() { printf '\n==> %s\n' "$1"; }
+die() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
+
+OS="$(uname -s)"
+case "$OS" in
+  Linux)  TOOLS_OS=linux;  DEFAULT_SDK="$HOME/Android/Sdk" ;;
+  Darwin) TOOLS_OS=mac;    DEFAULT_SDK="$HOME/Library/Android/sdk" ;;
+  *) die "Unsupported OS '$OS' (Windows: use WSL2)." ;;
+esac
+CMDLINE_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-${TOOLS_OS}-${CMDLINE_TOOLS_BUILD}_latest.zip"
+
+# compileSdkVersion from variables.gradle decides the platform to install.
+COMPILE_SDK="$(sed -n 's/^[[:space:]]*compileSdkVersion[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' "$ANDROID_DIR/variables.gradle" | head -1)"
+[ -n "$COMPILE_SDK" ] || die "could not read compileSdkVersion from $ANDROID_DIR/variables.gradle (run '{{MOBILE_CAP}} add android' first)"
+ANDROID_PLATFORM="android-${COMPILE_SDK}"
+
+# --- JDK -------------------------------------------------------------------------
+find_java_home() {
+  local c
+  if [ "$OS" = Darwin ] && /usr/libexec/java_home -v "$JDK_MAJOR" >/dev/null 2>&1; then
+    /usr/libexec/java_home -v "$JDK_MAJOR"; return 0
+  fi
+  for c in /usr/lib/jvm/java-"$JDK_MAJOR"-openjdk* /usr/lib/jvm/java-"$JDK_MAJOR"* \
+           "$(command -v brew >/dev/null 2>&1 && brew --prefix "openjdk@$JDK_MAJOR" 2>/dev/null)/libexec/openjdk.jdk/Contents/Home" \
+           "$(command -v brew >/dev/null 2>&1 && brew --prefix "openjdk@$JDK_MAJOR" 2>/dev/null)/libexec"; do
+    [ -x "$c/bin/java" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+
+run_privileged() { # prints the human-handoff message if sudo cannot prompt
+  if [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if sudo -n true 2>/dev/null || [ -t 0 ]; then sudo "$@"; return; fi
+  echo "This step needs your sudo password, which an AI agent must not enter." >&2
+  echo "Please run it yourself in a terminal:   ${SCRIPT_DIR}/install   (Claude Code: ! ${SCRIPT_DIR}/install)" >&2
+  exit 1
+}
+
+log "JDK $JDK_MAJOR"
+if ! JAVA_HOME="$(find_java_home)"; then
+  if   command -v pacman >/dev/null 2>&1; then run_privileged pacman -S --needed --noconfirm "jdk${JDK_MAJOR}-openjdk"
+  elif command -v apt-get >/dev/null 2>&1; then run_privileged apt-get install -y "openjdk-${JDK_MAJOR}-jdk" unzip curl
+  elif command -v brew    >/dev/null 2>&1; then brew install "openjdk@${JDK_MAJOR}"
+  else die "No supported package manager (pacman/apt/brew). Install a JDK ${JDK_MAJOR} manually, then re-run."
+  fi
+  JAVA_HOME="$(find_java_home)" || die "JDK $JDK_MAJOR still not found after install."
+fi
+export JAVA_HOME PATH="$JAVA_HOME/bin:$PATH"
+echo "JAVA_HOME=$JAVA_HOME"
+
+for t in curl unzip; do
+  command -v "$t" >/dev/null 2>&1 || die "'$t' is missing -- install it with your package manager and re-run (add it to this script)."
+done
+
+log "Pointing Gradle at this JDK (~/.gradle/gradle.properties)"
+mkdir -p "$HOME/.gradle"; touch "$HOME/.gradle/gradle.properties"
+if grep -q '^org.gradle.java.home=' "$HOME/.gradle/gradle.properties"; then
+  sed -i.bak "s#^org.gradle.java.home=.*#org.gradle.java.home=${JAVA_HOME}#" "$HOME/.gradle/gradle.properties"
+  rm -f "$HOME/.gradle/gradle.properties.bak"
+else
+  printf 'org.gradle.java.home=%s\n' "$JAVA_HOME" >> "$HOME/.gradle/gradle.properties"
+fi
+
+# --- Android SDK -----------------------------------------------------------------
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEFAULT_SDK}}"
+export ANDROID_SDK_ROOT="$SDK_ROOT" ANDROID_HOME="$SDK_ROOT"
+CLT="$SDK_ROOT/cmdline-tools/latest"
+
+log "Android cmdline-tools -> $SDK_ROOT"
+if [ ! -x "$CLT/bin/sdkmanager" ]; then
+  work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+  curl -fL "$CMDLINE_TOOLS_URL" -o "$work/clt.zip"
+  unzip -q "$work/clt.zip" -d "$work/x"
+  mkdir -p "$SDK_ROOT/cmdline-tools"; rm -rf "$CLT"
+  mv "$work/x/cmdline-tools" "$CLT"   # sdkmanager insists on .../cmdline-tools/latest
+else
+  echo "already installed"
+fi
+SDKMANAGER="$CLT/bin/sdkmanager"
+
+log "Accepting SDK licenses"
+# Feed `yes` via process substitution: `yes | sdkmanager` exits 141 under pipefail.
+"$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null < <(yes) || true
+
+log "SDK packages: platform-tools, platforms;${ANDROID_PLATFORM}, build-tools;${BUILD_TOOLS}"
+"$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS}"
+
+log "Writing mobile/android/local.properties (gitignored)"
+printf 'sdk.dir=%s\n' "$SDK_ROOT" > "$ANDROID_DIR/local.properties"
+
+if [ "${SKIP_BUILD_CHECK:-}" != "1" ]; then
+  log "Verifying the toolchain with a debug build (SKIP_BUILD_CHECK=1 to skip)"
+  (cd "$ANDROID_DIR" && ./gradlew assembleDebug)
+  APK="$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
+  [ -f "$APK" ] || die "build finished but $APK does not exist"
+  echo "Build OK: $APK"
+fi
+log "Done. SDK_ROOT=$SDK_ROOT JAVA_HOME=$JAVA_HOME"

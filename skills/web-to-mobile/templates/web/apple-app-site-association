@@ -1,0 +1,18 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.{{APP_ID}}"],
+        "components": [
+{{AASA_CALLBACK_COMPONENTS}}
+          { "/": "/api/*", "exclude": true, "comment": "API, webhooks and OAuth redirects stay in the browser" },
+          { "/": "/pricing*", "exclude": true, "comment": "payment pages never open in the app" },
+          { "/": "/checkout*", "exclude": true },
+          { "/": "/terms", "exclude": true },
+          { "/": "/privacy", "exclude": true },
+          { "/": "/*", "comment": "Everything else opens in the app. Narrow this (e.g. /app/*) if only part of the site belongs in it." }
+        ]
+      }
+    ]
+  }
+}

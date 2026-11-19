@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# One-time pairing of a phone for Android Wireless debugging by QR code (nothing
+# to type). Prints a QR in the terminal; the phone scans it (Settings > Developer
+# options > Wireless debugging > "Pair device with QR code"); this script then
+# finds the phone's pairing service via mDNS and runs `adb pair`.
+# Afterwards use mobile/android/bin/run-wifi.
+#
+# Usage: mobile/android/bin/pair-wifi
+# Needs `qrencode` and the phone + computer on the same Wi-Fi.
+#   (pacman -S qrencode | apt install qrencode | brew install qrencode)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [ -z "$SDK_ROOT" ] && [ -f "$ANDROID_DIR/local.properties" ]; then
+  SDK_ROOT="$(sed -n 's/^sdk.dir=//p' "$ANDROID_DIR/local.properties")"
+fi
+ADB="${SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb"
+[ -x "$ADB" ] || { echo "adb not found at $ADB -- run mobile/android/bin/install first." >&2; exit 1; }
+command -v qrencode >/dev/null || { echo "qrencode is required (pacman -S qrencode | apt install qrencode | brew install qrencode)." >&2; exit 1; }
+command -v openssl  >/dev/null || { echo "openssl is required." >&2; exit 1; }
+
+name="{{APP_SLUG}}-$(openssl rand -hex 3)"
+code="$(openssl rand -hex 4)"
+
+"$ADB" start-server >/dev/null 2>&1
+echo "On the phone: Settings > Developer options > Wireless debugging > Pair device with QR code. Scan:"
+echo
+qrencode -t ANSIUTF8 "WIFI:T:ADB;S:${name};P:${code};;"
+echo
+echo "Waiting up to 2 minutes for the phone ($name) ..."
+
+for _ in $(seq 1 60); do
+  line="$("$ADB" mdns services 2>/dev/null | grep -F "$name" | grep "_adb-tls-pairing" | head -1 || true)"
+  if [ -n "$line" ]; then
+    endpoint="$(printf '%s\n' "$line" | grep -oE '[0-9.]+:[0-9]+' | head -1)"
+    echo "Found $endpoint - pairing"
+    "$ADB" pair "$endpoint" "$code"
+    echo; echo "Paired. Now run: mobile/android/bin/run-wifi"
+    exit 0
+  fi
+  sleep 2
+done
+echo "Timed out: the phone did not show up. Same Wi-Fi? Some routers block mDNS -- use the manual flow:" >&2
+echo "  phone: 'Pair device with pairing code' -> $ADB pair <ip:port> <code>" >&2
+exit 1

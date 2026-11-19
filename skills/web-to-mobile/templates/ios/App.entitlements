@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Needs a PAID Apple Developer team: a free "Personal Team" cannot provision
+	     these capabilities. Free test builds use AppFree.entitlements instead
+	     (bin/run-device, free mode). -->
+	{{ENT_APPLESIGNIN}}
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:{{PROD_HOST}}</string>
+	</array>
+</dict>
+</plist>

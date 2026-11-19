@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# Prints the SHA-256 signing-certificate fingerprint(s) you must list in
+# assetlinks.json for Android App Links. Three different identities exist and
+# ALL of them belong in the file (append, never replace):
+#   1. debug keystore of every machine that builds debug APKs  -> package {{APP_ID}}.debug
+#   2. your upload key (what bundleRelease signs with)         -> only for sideloaded release APKs
+#   3. the Play App Signing key (Play Console > Test and release > App signing)
+#      -> package {{APP_ID}}; this is what users of the Play build actually have.
+#
+# Usage:
+#   mobile/android/bin/fingerprint apk [path/to.apk]   # default: the debug APK
+#   mobile/android/bin/fingerprint debug-keystore      # this machine's debug keystore
+#   mobile/android/bin/fingerprint upload-key          # your upload key (reads ~/.config/{{APP_SLUG}}/)
+# Then append with:  <skill>/scripts/assetlinks-add.sh <web>/.well-known/assetlinks.json <package> <fingerprint>
+
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [ -z "$SDK_ROOT" ] && [ -f "$ANDROID_DIR/local.properties" ]; then
+  SDK_ROOT="$(sed -n 's/^sdk.dir=//p' "$ANDROID_DIR/local.properties")"
+fi
+SDK_ROOT="${SDK_ROOT:-$HOME/Android/Sdk}"
+CFG="$HOME/.config/{{APP_SLUG}}"
+mode="${1:-apk}"
+
+case "$mode" in
+  apk)
+    apk="${2:-$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk}"
+    [ -f "$apk" ] || { echo "APK not found: $apk (build it: mobile/android/bin/run-wifi)" >&2; exit 1; }
+    jar="$(find "$SDK_ROOT/build-tools" -name apksigner.jar 2>/dev/null | sort | tail -1)"
+    [ -n "$jar" ] || { echo "apksigner.jar not found under $SDK_ROOT/build-tools -- run bin/install" >&2; exit 1; }
+    java -jar "$jar" verify --print-certs "$apk" | grep -i 'SHA-256' | sed 's/.*digest: *//' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//'
+    ;;
+  debug-keystore)
+    ks=""
+    for c in "$HOME/.config/.android/debug.keystore" "$HOME/.android/debug.keystore"; do [ -f "$c" ] && ks="$c" && break; done
+    [ -n "$ks" ] || { echo "No debug keystore yet -- do one debug build first (bin/run-wifi)." >&2; exit 1; }
+    keytool -list -v -keystore "$ks" -alias androiddebugkey -storepass android -keypass android 2>/dev/null | sed -n 's/^ *SHA256: *//p'
+    ;;
+  upload-key)
+    props="$CFG/upload-keystore.properties"
+    [ -f "$props" ] || { echo "$props missing -- run bin/make-upload-key" >&2; exit 1; }
+    store="$(sed -n 's/^storeFile=//p' "$props")"; alias_="$(sed -n 's/^keyAlias=//p' "$props")"
+    # Password is read from the file and passed via env, never printed.
+    STOREPASS="$(sed -n 's/^storePassword=//p' "$props")" \
+      keytool -list -v -keystore "$store" -alias "$alias_" -storepass:env STOREPASS 2>/dev/null | sed -n 's/^ *SHA256: *//p'
+    ;;
+  *) echo "usage: $0 apk [file] | debug-keystore | upload-key" >&2; exit 2 ;;
+esac

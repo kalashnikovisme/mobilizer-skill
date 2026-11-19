@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>{{APP_NAME}}</title>
+    <!--
+      Bundled into the iOS app (capacitor.config.ts -> server.errorPath) and shown
+      only when {{PROD_URL}} cannot be loaded at launch. Self-contained: no network,
+      no framework. Adjust colours to the brand; add languages in `copy` below.
+    -->
+    <style>
+      :root { --bg: {{BRAND_COLOR}}; --ink: #1a1a1a; --soft: #6b6b6b; --cta: #1a1a1a; }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink);
+        font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+      main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 14px; padding: calc(24px + env(safe-area-inset-top)) 28px calc(24px + env(safe-area-inset-bottom)); text-align: center; }
+      h1 { margin: 6px 0 0; font-size: 22px; }
+      p { margin: 0; max-width: 320px; color: var(--soft); }
+      button { margin-top: 10px; min-width: 200px; min-height: 48px; padding: 12px 24px; border: 0; border-radius: 14px;
+        background: var(--cta); color: #fff; font: inherit; font-weight: 600; }
+      button[disabled] { opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title"></h1>
+      <p id="body"></p>
+      <button id="retry" type="button"></button>
+    </main>
+    <script>
+      (function () {
+        var copy = {
+          en: { title: "You're offline", body: '{{APP_NAME}} needs an internet connection. Check your connection and try again.', retry: 'Try again', trying: 'Connecting…' },
+          ru: { title: 'Нет подключения', body: 'Для работы {{APP_NAME}} нужен интернет. Проверьте соединение и попробуйте снова.', retry: 'Повторить', trying: 'Подключаемся…' }
+        };
+        var lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+        var text = copy[lang] || copy.en;
+        document.documentElement.lang = copy[lang] ? lang : 'en';
+        document.getElementById('title').textContent = text.title;
+        document.getElementById('body').textContent = text.body;
+        var button = document.getElementById('retry');
+        button.textContent = text.retry;
+        function retry() {
+          button.disabled = true;
+          button.textContent = text.trying;
+          // A failed load comes straight back to this page; re-enable then.
+          setTimeout(function () { button.disabled = false; button.textContent = text.retry; }, 4000);
+          window.location.replace('{{PROD_URL}}/');
+        }
+        button.addEventListener('click', retry);
+        window.addEventListener('online', retry);
+      })();
+    </script>
+  </body>
+</html>

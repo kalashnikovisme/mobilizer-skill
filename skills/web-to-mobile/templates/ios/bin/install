@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# One-time, idempotent setup of the iOS toolchain on a Mac. Safe to re-run.
+#
+# >>> MAINTENANCE CONTRACT <<<
+# Single source of truth for iOS prerequisites. If an iOS build fails because
+# something was missing, that is a bug in THIS FILE: fix it here instead of
+# writing a manual workaround. Xcode cannot run in Docker, so the repo's usual
+# container rule does not apply to iOS builds (see .agents/mobile-build.md).
+#
+# Usage: mobile/ios/bin/install
+# Steps that need the human (sudo password, App Store install of Xcode) are printed
+# as numbered instructions; AI agents must not type passwords.
+set -euo pipefail
+cd "$(dirname "$0")/../.."   # mobile/
+
+# --- Versions: edit ONLY here ---------------------------------------------------
+NODE_MIN_MAJOR=20
+NODE_BREW_FORMULA="node@22"
+MIN_FREE_GB=25
+# --------------------------------------------------------------------------------
+die() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
+
+[ "$(uname)" = "Darwin" ] || die "iOS apps can only be built on macOS. On Linux/Windows: build Android, and hand this folder to a Mac user (docs: ios-release.md)."
+echo "macOS $(sw_vers -productVersion) $(uname -m)"
+
+free_gb=$(df -g / | awk 'NR==2{print $4}')
+[ "${free_gb:-0}" -ge "$MIN_FREE_GB" ] || die "Only ${free_gb}GB free; Xcode and simulators need ~${MIN_FREE_GB}GB."
+
+xcodebuild -version >/dev/null 2>&1 || {
+  echo "Xcode is not installed or not selected. Please:"
+  echo "  1. Open the App Store, search 'Xcode', click Get/Install (about 10 GB, takes a while)."
+  echo "  2. Open Xcode once and accept the license / let it install components."
+  echo "  3. Re-run: mobile/ios/bin/install"
+  exit 1; }
+xcode-select -p >/dev/null 2>&1 || die "Command Line Tools missing: run  xcode-select --install"
+if ! xcodebuild -license check >/dev/null 2>&1; then
+  echo "Xcode's license is not accepted. Please run in your terminal (needs your password):"
+  echo "  sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch"
+  echo "(Claude Code: ! sudo xcodebuild -license accept)"
+  exit 1
+fi
+case "$(xcode-select -p)" in *Xcode*.app*) ;; *)
+  echo "Active developer dir is $(xcode-select -p), not Xcode. Please run:"
+  echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"; exit 1 ;; esac
+
+if ! xcrun simctl list runtimes 2>/dev/null | grep -q 'iOS'; then
+  echo "No iOS simulator runtime -- downloading (several GB)..."
+  xcodebuild -downloadPlatform iOS
+fi
+
+command -v brew >/dev/null || die "Homebrew missing. Install it from https://brew.sh (needs your password), then re-run."
+if ! command -v node >/dev/null; then brew install "$NODE_BREW_FORMULA"; fi
+node -e "process.exit(+process.versions.node.split('.')[0] >= $NODE_MIN_MAJOR ? 0 : 1)" \
+  || die "Node >= $NODE_MIN_MAJOR required (brew install $NODE_BREW_FORMULA)."
+
+[ -f ios/local.env ] || { cp ios/local.env.example ios/local.env; echo "Created mobile/ios/local.env (gitignored) -- fill TEAM_ID for real-device/TestFlight builds."; }
+{{MOBILE_NPM}} ci
+echo "OK. Next: simulator -> mobile/ios/bin/run-simulator   |   iPhone -> fill TEAM_ID, then mobile/ios/bin/run-device"

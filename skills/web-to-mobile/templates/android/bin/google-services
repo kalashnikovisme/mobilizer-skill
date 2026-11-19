@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Writes mobile/android/app/google-services.json (Firebase client config, needed
+# only for push notifications) from the repository's SECRET STORE. The file is
+# gitignored -- never commit it, never keep plaintext copies in the repo, never
+# print its contents.
+#
+# Usage: mobile/android/bin/google-services <development|production>
+#   development  config containing BOTH {{APP_ID}} and {{APP_ID}}.debug (debug builds)
+#   production   config for {{APP_ID}} only (release builds)
+# A debug build with the production config fails: "No matching client found".
+#
+# Secret store (set in Phase 0, MOBILE.md): {{SECRETS_STORE}}
+#   dev ref:  {{SECRETS_REF_DEV}}
+#   prod ref: {{SECRETS_REF_PROD}}
+# Adapt fetch_secret() to your store if it is not one of the built-in ones; keep this
+# script the single entry point.
+set -euo pipefail
+env="${1:-}"
+case "$env" in development) ref="{{SECRETS_REF_DEV}}" ;; production) ref="{{SECRETS_REF_PROD}}" ;;
+  *) echo "Usage: $0 <development|production>" >&2; exit 1 ;; esac
+[ -n "$ref" ] || { echo "No secret reference for '$env' in MOBILE.md (SECRETS_REF_*)." >&2; exit 1; }
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+dest="$root/mobile/android/app/google-services.json"
+tmp="$dest.tmp.$$"; trap 'rm -f "$tmp"' EXIT
+
+fetch_secret() {
+  case "{{SECRETS_STORE}}" in
+    sops)   sops -d --extract '["GOOGLE_SERVICES_JSON"]' "$ref" ;;           # ref = path to the encrypted file
+    op)     op read "$ref" ;;                                               # ref = op://vault/item/field
+    file)   cat "${ref/#\~/$HOME}" ;;                                       # ref = path outside the repo
+    custom) bash -c "$ref" ;;                                               # ref = a command printing the JSON
+    *) echo "SECRETS_STORE '{{SECRETS_STORE}}' is not supported by this script -- edit fetch_secret()." >&2; return 1 ;;
+  esac
+}
+
+if ! (umask 077; fetch_secret | jq . > "$tmp"); then
+  echo "ERROR: could not read the Firebase config for '$env' from the secret store." >&2; exit 1
+fi
+jq -e '.project_info.project_id and (.client | length > 0)' "$tmp" >/dev/null \
+  || { echo "ERROR: the stored value is not a valid google-services.json." >&2; exit 1; }
+mv "$tmp" "$dest"; trap - EXIT
+echo "OK  wrote mobile/android/app/google-services.json from the '$env' secret"
+echo "    packages: $(jq -r '[.client[].client_info.android_client_info.package_name] | join(", ")' "$dest")"

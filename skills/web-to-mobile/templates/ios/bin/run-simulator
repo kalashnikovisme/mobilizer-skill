@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# Build the app for the iOS SIMULATOR, launch it, take a screenshot and check that
+# the site loaded. Needs NO iPhone, NO Apple ID, NO signing. Default mode for people
+# who are not iOS developers.
+#
+# Usage: mobile/ios/bin/run-simulator            # builds, runs, screenshot -> ios/build/simulator.png
+#        mobile/ios/bin/run-simulator --shot NAME # extra: save a screenshot as ios/build/NAME.png after launch
+# The agent MUST open the screenshot and confirm the real page is visible (not a white
+# screen / offline page); the size heuristic below only catches blank screens.
+set -euo pipefail
+cd "$(dirname "$0")/../.."   # mobile/
+[ "$(uname)" = "Darwin" ] || { echo "macOS only." >&2; exit 1; }
+[ -f ios/local.env ] && { set -a; . ios/local.env; set +a; }
+BUNDLE="{{APP_ID}}.dev"; NAME="{{APP_NAME}} Dev"
+SHOT_NAME="simulator"; [ "${1:-}" = "--shot" ] && SHOT_NAME="${2:-simulator}"
+
+curl -fsS -o /dev/null --max-time 15 "{{PROD_URL}}/" || { echo "{{PROD_URL}} is not reachable from this Mac -- the app loads the live site, so it would show the offline page." >&2; exit 1; }
+[ -d node_modules ] || {{MOBILE_NPM}} ci
+{{MOBILE_CAP}} sync ios            # always `sync ios`, never a bare `cap sync`
+
+SIM=""
+if [ -n "${SIMULATOR:-}" ]; then
+  SIM=$(xcrun simctl list devices available | grep -F "$SIMULATOR (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/' || true)
+fi
+[ -n "$SIM" ] || SIM=$(xcrun simctl list devices booted | grep -E 'iPhone' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/' || true)
+[ -n "$SIM" ] || SIM=$(xcrun simctl list devices available | grep -E 'iPhone (1[5-9]|[2-9][0-9])' | grep -v -E 'SE|Pro Max|Plus|Air|mini' | tail -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/' || true)
+[ -n "$SIM" ] || { echo "No iPhone simulator available. Run mobile/ios/bin/install (downloads the iOS runtime)." >&2; exit 1; }
+echo "Simulator: $SIM"
+xcrun simctl boot "$SIM" 2>/dev/null || true       # already-booted is fine
+open -a Simulator
+
+xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+  -destination "id=$SIM" -derivedDataPath ios/build \
+  CODE_SIGNING_ALLOWED=NO PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE" APP_DISPLAY_NAME="$NAME" build
+APP="ios/build/Build/Products/Debug-iphonesimulator/App.app"
+[ -d "$APP" ] || { echo "Build finished but $APP does not exist." >&2; exit 1; }
+
+xcrun simctl install "$SIM" "$APP"
+xcrun simctl launch "$SIM" "$BUNDLE" || { echo "Launch failed." >&2; exit 1; }
+sleep 8                                             # let the remote page load
+mkdir -p ios/build
+SHOT="ios/build/${SHOT_NAME}.png"
+xcrun simctl io "$SIM" screenshot "$SHOT"
+bytes=$(stat -f%z "$SHOT")
+if [ "$bytes" -lt 60000 ]; then
+  echo "WARNING: screenshot is only ${bytes} bytes -- the screen is probably blank or the offline page. Open $SHOT and check." >&2
+fi
+echo "Launched $BUNDLE on simulator $SIM. Screenshot: mobile/$SHOT -- OPEN IT and confirm the site is visible."

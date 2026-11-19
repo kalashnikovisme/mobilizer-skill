@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Builds the debug APK, installs and launches it on a phone that is already
+# paired for Android Wireless debugging -- no USB cable. After a one-time pairing
+# (bin/pair-wifi) adb rediscovers the phone over mDNS while both are on the same Wi-Fi.
+#
+# Usage: mobile/android/bin/run-wifi
+# Prints "Launched {{APP_ID}}.debug on <device>." only after `am start` succeeded
+# and the process is actually running.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MOBILE_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
+
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [ -z "$SDK_ROOT" ] && [ -f "$ANDROID_DIR/local.properties" ]; then
+  SDK_ROOT="$(sed -n 's/^sdk.dir=//p' "$ANDROID_DIR/local.properties")"
+fi
+ADB="${SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb"
+[ -x "$ADB" ] || { echo "adb not found at $ADB -- run mobile/android/bin/install first." >&2; exit 1; }
+log() { printf '\n==> %s\n' "$1"; }
+
+log "Looking for a wirelessly-paired device"
+"$ADB" start-server >/dev/null 2>&1 || true
+SERIAL="$("$ADB" devices | awk '$2=="device" && $1 ~ /_adb-tls-connect\._tcp/ {print $1; exit}')"
+if [ -z "$SERIAL" ]; then
+  echo "No wirelessly-paired device found in 'adb devices'." >&2
+  echo "Ask the phone's owner to (same Wi-Fi as this computer):" >&2
+  echo "  1. Settings > Developer options > Wireless debugging > ON" >&2
+  echo "  2. Run  mobile/android/bin/pair-wifi  and scan the QR with 'Pair device with QR code'," >&2
+  echo "     or tap 'Pair device with pairing code' and tell the agent the IP:PORT and 6-digit code" >&2
+  echo "     (then:  $ADB pair <ip:port> <code>)." >&2
+  exit 1
+fi
+echo "Using $SERIAL"
+
+log "Syncing Capacitor (android only) and building debug APK"
+(cd "$MOBILE_DIR" && [ -d node_modules ] || {{MOBILE_NPM}} ci)
+(cd "$MOBILE_DIR" && CAP_DEBUG=1 {{MOBILE_CAP}} sync android)
+(cd "$ANDROID_DIR" && ./gradlew assembleDebug)
+APK="$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
+[ -f "$APK" ] || { echo "Build did not produce $APK" >&2; exit 1; }
+
+log "Installing on $SERIAL"
+"$ADB" -s "$SERIAL" install -r "$APK"
+
+log "Launching {{APP_ID}}.debug"
+"$ADB" -s "$SERIAL" shell am start -n {{APP_ID}}.debug/{{APP_ID}}.MainActivity
+sleep 2
+if "$ADB" -s "$SERIAL" shell pidof {{APP_ID}}.debug >/dev/null 2>&1; then
+  echo "Launched {{APP_ID}}.debug on $SERIAL."
+else
+  echo "App was installed but the process is not running -- check:  $ADB -s $SERIAL logcat -d | tail -50" >&2
+  exit 1
+fi

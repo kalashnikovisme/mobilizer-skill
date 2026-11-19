@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Builds the signed Android App Bundle (.aab) for Google Play.
+#
+#   mobile/android/bin/release          bump versionCode, build, verify signature
+#   mobile/android/bin/release --keep   build without bumping versionCode
+#
+# The upload key and its properties live OUTSIDE the repo:
+#   ~/.config/{{APP_SLUG}}/upload-keystore.{jks,properties}   (create: bin/make-upload-key)
+# Without them Gradle silently produces an UNSIGNED bundle that Play will reject.
+# This script refuses that unless ALLOW_UNSIGNED=1.
+#
+# versionCode must strictly increase with EVERY upload to Play. The bump edits
+# app/build.gradle -- commit that change.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MOBILE_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
+PROPS="$HOME/.config/{{APP_SLUG}}/upload-keystore.properties"
+GRADLE="$ANDROID_DIR/app/build.gradle"
+
+if [ ! -f "$PROPS" ]; then
+  printf '\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n' >&2
+  echo "WARNING: $PROPS not found -- the bundle would be UNSIGNED." >&2
+  echo "Create the upload key first:  mobile/android/bin/make-upload-key   (then BACK IT UP)" >&2
+  printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n' >&2
+  [ "${ALLOW_UNSIGNED:-}" = 1 ] || exit 1
+fi
+
+cur="$(sed -n 's/^[[:space:]]*versionCode[[:space:]]*\([0-9]*\).*/\1/p' "$GRADLE" | head -1)"
+[ -n "$cur" ] || { echo "cannot read versionCode from $GRADLE" >&2; exit 1; }
+if [ "${1:-}" != "--keep" ]; then
+  new=$((cur + 1))
+  sed -i.bak -E "s/^([[:space:]]*versionCode[[:space:]]+)[0-9]+/\1${new}/" "$GRADLE" && rm -f "$GRADLE.bak"
+  echo "versionCode $cur -> $new (commit this change)"
+else
+  new="$cur"; echo "versionCode kept at $cur"
+fi
+
+(cd "$MOBILE_DIR" && [ -d node_modules ] || {{MOBILE_NPM}} ci)
+(cd "$MOBILE_DIR" && {{MOBILE_CAP}} sync android)
+(cd "$ANDROID_DIR" && ./gradlew bundleRelease)
+
+AAB="$ANDROID_DIR/app/build/outputs/bundle/release/app-release.aab"
+[ -f "$AAB" ] || { echo "No bundle produced at $AAB" >&2; exit 1; }
+if [ -f "$PROPS" ]; then
+  if ! keytool -printcert -jarfile "$AAB" >/dev/null 2>&1; then
+    echo "ERROR: $AAB is not signed even though upload properties exist -- check app/build.gradle signingConfig." >&2; exit 1
+  fi
+  echo "Signed by (upload key):"; keytool -printcert -jarfile "$AAB" | sed -n 's/^ *SHA256: */  SHA-256 /p'
+fi
+echo "Built $AAB (versionCode $new). Upload it in Play Console > Test and release."

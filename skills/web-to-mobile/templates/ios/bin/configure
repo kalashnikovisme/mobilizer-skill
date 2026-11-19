@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# One-time (idempotent) wiring of the generated Xcode project after `npx cap add ios` and
+# after copying the rendered files into mobile/ios/App/App/:
+#   - Info.plist: ITSAppUsesNonExemptEncryption=false (HTTPS only), CFBundleDisplayName=$(APP_DISPLAY_NAME)
+#   - Xcode project: file references for entitlements, PrivacyInfo.xcprivacy, localized InfoPlist.strings,
+#     the custom bridge view controller (+ AppleSignInPlugin if present), build settings
+#     (bundle id, display name, CODE_SIGN_ENTITLEMENTS)
+#   - Main.storyboard -> custom bridge view controller
+# Uses the Ruby `xcodeproj` gem (installed with --user-install if missing).
+#
+# Usage: mobile/ios/bin/configure
+# NOTE: written without a Mac in the authoring environment -- the first run is the first real test.
+# If it fails, fix THIS script (maintenance contract), do not hand-edit project.pbxproj ad hoc.
+set -euo pipefail
+cd "$(dirname "$0")/../.."   # mobile/
+[ "$(uname)" = "Darwin" ] || { echo "macOS only." >&2; exit 1; }
+
+APP_ID="{{APP_ID}}"; APP_NAME="{{APP_NAME}}"; BRIDGE_CLASS="{{APP_PASCAL}}BridgeViewController"; LOCALES="{{LOCALES}}"
+PROJ="ios/App/App.xcodeproj"; APPDIR="ios/App/App"
+[ -d "$PROJ" ] || { echo "$PROJ not found -- run: {{MOBILE_CAP}} add ios" >&2; exit 1; }
+
+PB=/usr/libexec/PlistBuddy; PLIST="$APPDIR/Info.plist"
+$PB -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null || $PB -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+$PB -c "Set :CFBundleDisplayName \$(APP_DISPLAY_NAME)" "$PLIST" 2>/dev/null || $PB -c "Add :CFBundleDisplayName string \$(APP_DISPLAY_NAME)" "$PLIST"
+
+if grep -q 'customClass="CAPBridgeViewController"' "$APPDIR/Base.lproj/Main.storyboard"; then
+  sed -i.bak "s/customClass=\"CAPBridgeViewController\" customModule=\"Capacitor\"/customClass=\"$BRIDGE_CLASS\" customModule=\"App\"/" "$APPDIR/Base.lproj/Main.storyboard"
+  rm -f "$APPDIR/Base.lproj/Main.storyboard.bak"
+fi
+
+gem list -i xcodeproj >/dev/null 2>&1 || gem install xcodeproj --user-install
+export APP_ID APP_NAME LOCALES PROJ
+ruby -rxcodeproj - <<'RUBY'
+project = Xcodeproj::Project.open(ENV.fetch('PROJ'))
+target  = project.targets.find { |t| t.name == 'App' } or abort 'target App not found'
+group   = project.main_group.find_subpath('App', false) or abort 'group App not found'
+locales = ENV.fetch('LOCALES').split(',').map(&:strip).reject(&:empty?)
+
+def ensure_file(group, target, path, build: nil)
+  return unless File.exist?("ios/App/App/#{path}")
+  ref = group.files.find { |f| f.path == path } || group.new_file(path)
+  case build
+  when :resources then target.resources_build_phase.add_file_reference(ref, true) unless target.resources_build_phase.files_references.include?(ref)
+  when :sources   then target.source_build_phase.add_file_reference(ref, true)    unless target.source_build_phase.files_references.include?(ref)
+  end
+  ref
+end
+
+ensure_file(group, target, 'App.entitlements')
+ensure_file(group, target, 'AppFree.entitlements')
+ensure_file(group, target, 'PrivacyInfo.xcprivacy', build: :resources)
+Dir.glob('ios/App/App/*BridgeViewController.swift').each { |f| ensure_file(group, target, File.basename(f), build: :sources) }
+Dir.glob('ios/App/App/Plugins/*.swift').each { |f| ensure_file(group, target, "Plugins/#{File.basename(f)}", build: :sources) }
+
+variant = group.children.find { |c| c.isa == 'PBXVariantGroup' && c.name == 'InfoPlist.strings' }
+variant ||= group.new_variant_group('InfoPlist.strings')
+locales.each do |l|
+  rel = "#{l}.lproj/InfoPlist.strings"
+  next unless File.exist?("ios/App/App/#{rel}")
+  next if variant.children.any? { |c| c.path == rel }
+  ref = variant.new_reference(rel); ref.name = l; ref.last_known_file_type = 'text.plist.strings'
+end
+if variant.children.any? && !target.resources_build_phase.files_references.include?(variant)
+  target.resources_build_phase.add_file_reference(variant, true)
+end
+project.root_object.known_regions = (project.root_object.known_regions + locales).uniq
+
+target.build_configurations.each do |c|
+  s = c.build_settings
+  s['PRODUCT_BUNDLE_IDENTIFIER'] = ENV.fetch('APP_ID')
+  s['APP_DISPLAY_NAME']          = ENV.fetch('APP_NAME')
+  s['CODE_SIGN_ENTITLEMENTS']    = 'App/App.entitlements'
+end
+project.save
+puts 'Xcode project configured.'
+RUBY
+echo "Done. Review with:  git diff --stat mobile/ios   (project.pbxproj changes are expected)"

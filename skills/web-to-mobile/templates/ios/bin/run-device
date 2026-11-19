@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Build the app and launch it on a connected iPhone (USB or paired Wi-Fi).
+#   mobile/ios/bin/run-device           paid team: full app (bundle {{APP_ID}}.dev)
+#   mobile/ios/bin/run-device --free    free Apple ID: no Sign in with Apple / Universal Links / push,
+#                                       signature expires after 7 days (just run it again)
+# Needs TEAM_ID in mobile/ios/local.env. Prints "Launched on the iPhone." ONLY after devicectl succeeded.
+set -euo pipefail
+cd "$(dirname "$0")/../.."   # mobile/
+[ "$(uname)" = "Darwin" ] || { echo "macOS only." >&2; exit 1; }
+FREE=0; [ "${1:-}" = "--free" ] && FREE=1
+[ -f ios/local.env ] || { echo "mobile/ios/local.env missing -- run mobile/ios/bin/install" >&2; exit 1; }
+set -a; . ios/local.env; set +a
+[ -n "${TEAM_ID:-}" ] || { echo "Set TEAM_ID in mobile/ios/local.env (Xcode > Settings > Accounts > your team)." >&2; exit 1; }
+BUNDLE="{{APP_ID}}.dev"
+[ -d node_modules ] || {{MOBILE_NPM}} ci
+{{MOBILE_CAP}} sync ios            # always `sync ios` (never bare): iOS-only config such as the offline page
+
+DEV_ARGS=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE" APP_DISPLAY_NAME="{{APP_NAME}} Dev")
+[ "$FREE" = 1 ] && DEV_ARGS+=(CODE_SIGN_ENTITLEMENTS=App/AppFree.entitlements)
+
+DEVICE_ID="${DEVICE:-}"
+if [ -z "$DEVICE_ID" ]; then
+  json="$(mktemp)"; trap 'rm -f "$json"' EXIT
+  xcrun devicectl list devices --json-output "$json" >/dev/null 2>&1 || true
+  DEVICE_ID="$(python3 -I - "$json" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    devs = json.load(open(sys.argv[1]))["result"]["devices"]
+except Exception:
+    sys.exit(0)
+for d in devs:
+    hw, cp = d.get("hardwareProperties", {}), d.get("connectionProperties", {})
+    if hw.get("deviceType") == "iPhone" and cp.get("tunnelState") in ("connected", "connecting"):
+        print(hw.get("udid") or d.get("identifier")); break
+PY
+)"
+fi
+[ -n "$DEVICE_ID" ] || { cat >&2 <<MSG
+No iPhone found. Please (for a non-developer, step by step):
+  1. Connect the iPhone to this Mac with a cable and unlock it.
+  2. Tap "Trust" on the iPhone, enter its passcode.
+  3. iPhone: Settings > Privacy & Security > Developer Mode > On (the phone restarts; confirm after).
+  4. Check:  xcrun devicectl list devices   (state must be connected/available).
+MSG
+  exit 1; }
+echo "Device: $DEVICE_ID"
+
+xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+  -destination "id=$DEVICE_ID" -derivedDataPath ios/build \
+  -allowProvisioningUpdates DEVELOPMENT_TEAM="$TEAM_ID" "${DEV_ARGS[@]}" build
+APP="ios/build/Build/Products/Debug-iphoneos/App.app"
+[ -d "$APP" ] || { echo "Build finished but $APP does not exist." >&2; exit 1; }
+xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
+xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing "$BUNDLE"
+echo "Launched on the iPhone."
+echo "If iOS says 'Untrusted Developer': Settings > General > VPN & Device Management > your Apple ID > Trust."

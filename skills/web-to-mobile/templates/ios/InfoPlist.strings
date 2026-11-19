@@ -1,0 +1,6 @@
+/* Copy to ios/App/App/<locale>.lproj/InfoPlist.strings for every locale in LOCALES and TRANSLATE.
+   Keep ONLY the permissions the web app really triggers (each one must be justified to App Review).
+   Text must say WHY the app needs it, in the user's language. */
+"NSMicrophoneUsageDescription" = "{{APP_NAME}} uses the microphone so you can record audio inside the app.";
+"NSCameraUsageDescription" = "{{APP_NAME}} uses the camera so you can take photos inside the app.";
+"NSPhotoLibraryUsageDescription" = "{{APP_NAME}} needs access to your photos so you can choose pictures to upload.";
